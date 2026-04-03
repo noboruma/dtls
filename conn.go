@@ -99,6 +99,18 @@ type Conn struct {
 	handshakeConfig *handshakeConfig
 }
 
+func (c *Conn) Discard() int {
+	n := 0
+	for {
+		select {
+		case <-c.decrypted:
+			n++
+		default:
+			return n
+		}
+	}
+}
+
 // createConn creates a new DTLS connection.
 // Caller is responsible for validating the config before calling this function.
 //
