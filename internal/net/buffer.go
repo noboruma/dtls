@@ -43,10 +43,6 @@ type PacketBuffer struct {
 	packets     []AddrPacket
 	write, read int
 
-	// full indicates whether the buffer is full, which is needed to distinguish
-	// when the write pointer and read pointer are at the same index.
-	full bool
-
 	notify chan struct{}
 	closed bool
 
@@ -61,8 +57,7 @@ func NewPacketBuffer() *PacketBuffer {
 		// will always be at least one packet written to the buffer. Therefore,
 		// we opt to allocate with size of 1 during construction, rather than
 		// waiting until that first packet is written.
-		packets: make([]AddrPacket, 1),
-		full:    false,
+		packets: make([]AddrPacket, 16),
 	}
 }
 
@@ -84,32 +79,32 @@ func (b *PacketBuffer) WriteTo(pkt []byte, addr net.Addr) (int, error) {
 	}
 
 	// Check to see if we are full.
-	if b.full {
-		// If so, grow AddrPacket buffer.
-		var newSize int
-		if len(b.packets) < 128 {
-			// Double the number of packets.
-			newSize = len(b.packets) * 2
-		} else {
-			// Increase the number of packets by 25%.
-			newSize = 5 * len(b.packets) / 4
-		}
-		newBuf := make([]AddrPacket, newSize)
-		var n int
-		if b.read < b.write {
-			n = copy(newBuf, b.packets[b.read:b.write])
-		} else {
-			n = copy(newBuf, b.packets[b.read:])
-			n += copy(newBuf[n:], b.packets[:b.write])
-		}
+	//if b.full {
+	//	// If so, grow AddrPacket buffer.
+	//	var newSize int
+	//	if len(b.packets) < 128 {
+	//		// Double the number of packets.
+	//		newSize = len(b.packets) * 2
+	//	} else {
+	//		// Increase the number of packets by 25%.
+	//		newSize = 5 * len(b.packets) / 4
+	//	}
+	//	newBuf := make([]AddrPacket, newSize)
+	//	var n int
+	//	if b.read < b.write {
+	//		n = copy(newBuf, b.packets[b.read:b.write])
+	//	} else {
+	//		n = copy(newBuf, b.packets[b.read:])
+	//		n += copy(newBuf[n:], b.packets[:b.write])
+	//	}
 
-		b.packets = newBuf
+	//	b.packets = newBuf
 
-		// Update read/write pointers and mark buffer as not full.
-		b.read = 0
-		b.write = n
-		b.full = false
-	}
+	//	// Update read/write pointers and mark buffer as not full.
+	//	b.read = 0
+	//	b.write = n
+	//	b.full = false
+	//}
 
 	// Store the packet at the write pointer.
 	packet := &b.packets[b.write]
@@ -122,18 +117,10 @@ func (b *PacketBuffer) WriteTo(pkt []byte, addr net.Addr) (int, error) {
 	}
 	packet.addr = addr
 
-	// Increment write pointer.
-	b.write++
-
-	// If the write pointer is equal to the length of the buffer, wrap around.
-	if len(b.packets) == b.write {
-		b.write = 0
-	}
-
-	// If a write resulted in making write and read pointers equivalent, then we
-	// are full.
-	if b.write == b.read {
-		b.full = true
+	// Increment write pointer and wrap around.
+	b.write = (b.write + 1) % len(b.packets)
+	if b.write == b.read { // overwrite case, also increase read
+		b.read = (b.read + 1) % len(b.packets)
 	}
 
 	b.mutex.Unlock()
@@ -157,8 +144,8 @@ func (b *PacketBuffer) ReadFrom(packet []byte) (n int, addr net.Addr, err error)
 	for {
 		b.mutex.Lock()
 
-		if b.read != b.write || b.full {
-			ap := b.packets[b.read]
+		if b.read != b.write {
+			ap := &b.packets[b.read]
 			if len(packet) < ap.data.Len() {
 				b.mutex.Unlock()
 
@@ -173,17 +160,8 @@ func (b *PacketBuffer) ReadFrom(packet []byte) (n int, addr net.Addr, err error)
 				return n, nil, err
 			}
 
-			// Advance read pointer.
-			b.read++
-			if len(b.packets) == b.read {
-				b.read = 0
-			}
-
-			// If we were full before reading and have successfully read, we are
-			// no longer full.
-			if b.full {
-				b.full = false
-			}
+			// Advance read pointer and wrap around.
+			b.read = (b.read + 1) % len(b.packets)
 
 			b.mutex.Unlock()
 

@@ -221,10 +221,9 @@ func (l *listener) readLoop() {
 	defer l.readWG.Done()
 	defer close(l.readDoneCh)
 
-	buf := make([]byte, receiveMTU)
-
+	var buf [64 * 1024]byte
 	for {
-		n, raddr, err := l.pConn.ReadFrom(buf)
+		n, raddr, err := l.pConn.ReadFrom(buf[:])
 		if err != nil {
 			l.errRead.Store(err)
 

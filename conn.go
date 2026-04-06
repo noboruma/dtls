@@ -262,6 +262,26 @@ func createConn(
 	return conn, nil
 }
 
+func (c *Conn) Discard() int {
+	n := 0
+	for {
+		select {
+		case out, ok := <-c.decrypted:
+			if !ok {
+				return 0
+			}
+			switch out.(type) {
+			case (error):
+				return 0
+			default:
+				n++
+			}
+		default:
+			return n
+		}
+	}
+}
+
 // Handshake runs the client or server DTLS handshake
 // protocol if it has not yet been run.
 //
