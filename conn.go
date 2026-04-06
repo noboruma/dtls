@@ -249,7 +249,7 @@ func createConn(
 		maximumTransmissionUnit: mtu,
 		paddingLengthGenerator:  paddingLengthGenerator,
 
-		decrypted: make(chan any, 1),
+		decrypted: make(chan any, 16),
 		log:       logger,
 
 		readDeadline:  deadline.New(),
@@ -272,6 +272,26 @@ func createConn(
 	conn.setLocalEpoch(0)
 
 	return conn, nil
+}
+
+func (c *Conn) Discard() int {
+	n := 0
+	for {
+		select {
+		case out, ok := <-c.decrypted:
+			if !ok {
+				return 0
+			}
+			switch out.(type) {
+			case (error):
+				return 0
+			default:
+				n++
+			}
+		default:
+			return n
+		}
+	}
 }
 
 // Handshake runs the client or server DTLS handshake
@@ -408,11 +428,6 @@ func ClientWithOptions(conn net.PacketConn, rAddr net.Addr, opts ...ClientOption
 func serverWithConfig(conn net.PacketConn, rAddr net.Addr, config *Config) (*Conn, error) {
 	if config == nil {
 		return nil, errNoConfigProvided
-	}
-	if config.OnConnectionAttempt != nil {
-		if err := config.OnConnectionAttempt(rAddr); err != nil {
-			return nil, err
-		}
 	}
 
 	return createConn(conn, rAddr, config, false, nil)
@@ -890,7 +905,7 @@ func (c *Conn) readAndBuffer(ctx context.Context) error { //nolint:cyclop
 func (c *Conn) handleQueuedPackets(ctx context.Context) error {
 	c.lock.Lock()
 	pkts := c.encryptedPackets
-	c.encryptedPackets = nil
+	c.encryptedPackets = c.encryptedPackets[:0]
 	c.lock.Unlock()
 
 	for _, p := range pkts {
