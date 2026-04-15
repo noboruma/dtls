@@ -101,12 +101,7 @@ func (l *listener) Close() error {
 				if id := c.id.Load(); id != nil {
 					delete(l.conns, id.(string)) //nolint:forcetypeassert
 				}
-				// If we haven't already removed the remote address, remove it
-				// from the connection map.
-				if c.rmraddr.Load() == nil {
-					delete(l.conns, c.raddr.String())
-					c.rmraddr.Store(true)
-				}
+				delete(l.conns, c.raddr.String())
 			default:
 				break lclose
 			}
@@ -221,7 +216,7 @@ func (l *listener) readLoop() {
 	defer l.readWG.Done()
 	defer close(l.readDoneCh)
 
-	var buf [64 * 1024]byte
+	var buf [8 * 1024]byte
 	for {
 		n, raddr, err := l.pConn.ReadFrom(buf[:])
 		if err != nil {
@@ -283,9 +278,8 @@ func (l *listener) getConn(raddr net.Addr, buf []byte) (*PacketConn, bool, error
 type PacketConn struct {
 	listener *listener
 
-	raddr   net.Addr
-	rmraddr atomic.Value // bool
-	id      atomic.Value // string
+	raddr net.Addr
+	id    atomic.Value // string
 
 	buffer *idtlsnet.PacketBuffer
 
@@ -343,10 +337,9 @@ func (c *PacketConn) WriteTo(payload []byte, addr net.Addr) (n int, err error) {
 		// resulting in the remote address entry being dropped prior to the
 		// "real" client transitioning to sending using the alternate
 		// identifier.
-		if id != nil && c.rmraddr.Load() == nil && addr.String() != c.raddr.String() {
+		if id != nil && addr.String() != c.raddr.String() {
 			c.listener.connLock.Lock()
 			delete(c.listener.conns, c.raddr.String())
-			c.rmraddr.Store(true)
 			c.listener.connLock.Unlock()
 		}
 	}
@@ -372,12 +365,7 @@ func (c *PacketConn) Close() error {
 		if id := c.id.Load(); id != nil {
 			delete(c.listener.conns, id.(string)) //nolint:forcetypeassert
 		}
-		// If we haven't already removed the remote address, remove it from the
-		// connection map.
-		if c.rmraddr.Load() == nil {
-			delete(c.listener.conns, c.raddr.String())
-			c.rmraddr.Store(true)
-		}
+		delete(c.listener.conns, c.raddr.String())
 		nConns := len(c.listener.conns)
 		c.listener.connLock.Unlock()
 

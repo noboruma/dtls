@@ -31,7 +31,13 @@ var ErrTimeout = errors.New("buffer: i/o timeout")
 // it was received.
 type AddrPacket struct {
 	addr net.Addr
-	data bytes.Buffer
+	data *bytes.Buffer
+}
+
+var bufferPool = sync.Pool {
+	New: func() any {
+		return &bytes.Buffer{}
+	},
 }
 
 // PacketBuffer is a circular buffer for network packets. Each slot in the
@@ -108,6 +114,9 @@ func (b *PacketBuffer) WriteTo(pkt []byte, addr net.Addr) (int, error) {
 
 	// Store the packet at the write pointer.
 	packet := &b.packets[b.write]
+	if packet.data == nil {
+		packet.data = bufferPool.Get().(*bytes.Buffer)
+	}
 	packet.data.Reset()
 	n, err := packet.data.Write(pkt)
 	if err != nil {
@@ -162,6 +171,9 @@ func (b *PacketBuffer) ReadFrom(packet []byte) (n int, addr net.Addr, err error)
 
 			// Advance read pointer and wrap around.
 			b.read = (b.read + 1) % len(b.packets)
+
+			bufferPool.Put(ap.data)
+			ap.data = nil
 
 			b.mutex.Unlock()
 
