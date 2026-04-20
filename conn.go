@@ -237,7 +237,7 @@ func createConn(
 		maximumTransmissionUnit: mtu,
 		paddingLengthGenerator:  paddingLengthGenerator,
 
-		decrypted: make(chan any, 1),
+		decrypted: make(chan any, 16),
 		log:       logger,
 
 		readDeadline:  deadline.New(),
@@ -417,11 +417,12 @@ func serverWithConfig(conn net.PacketConn, rAddr net.Addr, config *Config) (*Con
 	if config == nil {
 		return nil, errNoConfigProvided
 	}
-	if config.OnConnectionAttempt != nil {
-		if err := config.OnConnectionAttempt(rAddr); err != nil {
-			return nil, err
-		}
-	}
+	//if config.OnConnectionAttempt != nil {
+	//	if err := config.OnConnectionAttempt(rAddr); err != nil {
+	//		conn.Close()
+	//		return nil, err
+	//	}
+	//}
 
 	return createConn(conn, rAddr, config, false, nil)
 }
@@ -898,7 +899,7 @@ func (c *Conn) readAndBuffer(ctx context.Context) error { //nolint:cyclop
 func (c *Conn) handleQueuedPackets(ctx context.Context) error {
 	c.lock.Lock()
 	pkts := c.encryptedPackets
-	c.encryptedPackets = nil
+	c.encryptedPackets = c.encryptedPackets[:0]
 	c.lock.Unlock()
 
 	for _, p := range pkts {
