@@ -102,3 +102,25 @@ func TestWithReceiveBufferSizeValidation(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, 16384, config.ReceiveBufferSize)
 }
+
+func TestWithListenerBacklog(t *testing.T) {
+	for _, size := range []int{0, -1} {
+		_, err := buildConfig(WithListenerBacklog(size))
+		assert.Error(t, err)
+	}
+
+	config, err := buildConfig(WithListenerBacklog(16384))
+	assert.NoError(t, err)
+	assert.Equal(t, 16384, config.ListenerBacklog)
+}
+
+func TestWithListenerPacketConnSize(t *testing.T) {
+	for _, size := range []int{0, -1} {
+		_, err := buildConfig(WithListenerPacketConnSize(size))
+		assert.Error(t, err)
+	}
+
+	config, err := buildConfig(WithListenerPacketConnSize(1024))
+	assert.NoError(t, err)
+	assert.Equal(t, 1024, config.PacketConnBufferSize)
+}

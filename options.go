@@ -58,6 +58,8 @@ type dtlsConfig struct {
 	MTU                           int
 	ReceiveBufferSize             int
 	ReplayProtectionWindow        int
+	ListenerBacklog               int
+	PacketConnBufferSize          int
 	KeyLogWriter                  io.Writer
 	SupportedProtocols            []string
 	EllipticCurves                []elliptic.Curve
@@ -388,6 +390,30 @@ func WithReceiveBufferSize(size int) Option {
 			return dtlserrors.ErrInvalidReceiveBufferSize
 		}
 		c.ReceiveBufferSize = size
+
+		return nil
+	})
+}
+
+// WithListenerBacklog sets the size of the listener backlog.
+func WithListenerBacklog(size int) Option {
+	return sharedOption(func(c *dtlsConfig) error {
+		if size <= 0 {
+			return dtlserrors.ErrInvalidReceiveBufferSize
+		}
+		c.ListenerBacklog = size
+
+		return nil
+	})
+}
+
+// WithListenerPacketConnSize sets the size of the PacketConn buffer.
+func WithListenerPacketConnSize(size int) Option {
+	return sharedOption(func(c *dtlsConfig) error {
+		if size <= 0 {
+			return dtlserrors.ErrInvalidReceiveBufferSize
+		}
+		c.PacketConnBufferSize = size
 
 		return nil
 	})

@@ -44,14 +44,15 @@ var (
 type listener struct {
 	pConn *net.UDPConn
 
-	accepting         atomic.Value // bool
-	acceptCh          chan *PacketConn
-	doneCh            chan struct{}
-	doneOnce          sync.Once
-	acceptFilter      func([]byte) bool
-	datagramRouter    func([]byte) (string, bool)
-	connIdentifier    func([]byte) (string, bool)
-	receiveBufferSize int
+	accepting            atomic.Value // bool
+	acceptCh             chan *PacketConn
+	doneCh               chan struct{}
+	doneOnce             sync.Once
+	acceptFilter         func([]byte) bool
+	datagramRouter       func([]byte) (string, bool)
+	connIdentifier       func([]byte) (string, bool)
+	receiveBufferSize    int
+	connPacketBufferSize int
 
 	connLock sync.Mutex
 	conns    map[string]*PacketConn
@@ -164,6 +165,10 @@ type ListenConfig struct {
 	// If zero or negative, the default value 8192 is used.
 	ReceiveBufferSize int
 
+	// PacketConnBufferSize sets the size of the buffer used to read packets.
+	// If zero, the default value 128 is used.
+	PacketConnBufferSize int
+
 	// Internal listen config used to open the UDP socket.
 	ListenConfig net.ListenConfig
 }
@@ -193,15 +198,16 @@ func (lc *ListenConfig) Listen(network string, laddr *net.UDPAddr) (dtlsnet.Pack
 	}
 
 	packetListener := &listener{
-		pConn:             conn,
-		acceptCh:          make(chan *PacketConn, lc.Backlog),
-		conns:             make(map[string]*PacketConn),
-		doneCh:            make(chan struct{}),
-		acceptFilter:      lc.AcceptFilter,
-		datagramRouter:    lc.DatagramRouter,
-		connIdentifier:    lc.ConnectionIdentifier,
-		receiveBufferSize: lc.ReceiveBufferSize,
-		readDoneCh:        make(chan struct{}),
+		pConn:                conn,
+		acceptCh:             make(chan *PacketConn, lc.Backlog),
+		conns:                make(map[string]*PacketConn),
+		doneCh:               make(chan struct{}),
+		acceptFilter:         lc.AcceptFilter,
+		datagramRouter:       lc.DatagramRouter,
+		connIdentifier:       lc.ConnectionIdentifier,
+		receiveBufferSize:    lc.ReceiveBufferSize,
+		connPacketBufferSize: lc.PacketConnBufferSize,
+		readDoneCh:           make(chan struct{}),
 	}
 
 	packetListener.accepting.Store(true)
@@ -311,7 +317,7 @@ func (l *listener) newPacketConn(raddr net.Addr) *PacketConn {
 	return &PacketConn{
 		listener:      l,
 		raddr:         raddr,
-		buffer:        idtlsnet.NewPacketBuffer(),
+		buffer:        idtlsnet.NewPacketBufferWithSize(l.connPacketBufferSize),
 		doneCh:        make(chan struct{}),
 		writeDeadline: deadline.New(),
 	}
