@@ -200,29 +200,8 @@ func (lc *ListenConfig) Listen(network string, laddr *net.UDPAddr) (dtlsnet.Pack
 	}
 
 	packetListener := &listener{
-<<<<<<< HEAD
-		pConn:             conn,
-		acceptCh:          make(chan *PacketConn, lc.Backlog),
-		doneCh:            make(chan struct{}),
-		acceptFilter:      lc.AcceptFilter,
-		datagramRouter:    lc.DatagramRouter,
-		connIdentifier:    lc.ConnectionIdentifier,
-		receiveBufferSize: lc.ReceiveBufferSize,
-		readDoneCh:        make(chan struct{}),
-||||||| dccb7be
-		pConn:             conn,
-		acceptCh:          make(chan *PacketConn, lc.Backlog),
-		conns:             make(map[string]*PacketConn),
-		doneCh:            make(chan struct{}),
-		acceptFilter:      lc.AcceptFilter,
-		datagramRouter:    lc.DatagramRouter,
-		connIdentifier:    lc.ConnectionIdentifier,
-		receiveBufferSize: lc.ReceiveBufferSize,
-		readDoneCh:        make(chan struct{}),
-=======
 		pConn:                conn,
 		acceptCh:             make(chan *PacketConn, lc.Backlog),
-		conns:                make(map[string]*PacketConn),
 		doneCh:               make(chan struct{}),
 		acceptFilter:         lc.AcceptFilter,
 		datagramRouter:       lc.DatagramRouter,
@@ -230,7 +209,6 @@ func (lc *ListenConfig) Listen(network string, laddr *net.UDPAddr) (dtlsnet.Pack
 		receiveBufferSize:    lc.ReceiveBufferSize,
 		connPacketBufferSize: lc.PacketConnBufferSize,
 		readDoneCh:           make(chan struct{}),
->>>>>>> mem-opt-new-2
 	}
 
 	packetListener.accepting.Store(true)

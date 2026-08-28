@@ -2903,3 +2903,23 @@ func (c *Conn) SetWriteDeadline(t time.Time) error {
 	// Write deadline is also fully managed by this layer.
 	return nil
 }
+
+func (c *Conn) Discard() int {
+	n := 0
+	for {
+		select {
+		case out, ok := <-c.decrypted:
+			if !ok {
+				return 0
+			}
+			switch out.(type) {
+			case (error):
+				return 0
+			default:
+				n++
+			}
+		default:
+			return n
+		}
+	}
+}
