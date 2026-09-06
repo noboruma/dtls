@@ -33,6 +33,7 @@ import (
 const (
 	defaultReceiveBufferSize = 8192
 	defaultListenBacklog     = 128 // same as Linux default
+	acceptClosed             = uint64(1) << 63
 )
 
 // Typed errors.
@@ -45,7 +46,8 @@ var (
 type listener struct {
 	pConn net.PacketConn
 
-	accepting         atomic.Value // bool
+	acceptState       atomic.Uint64 // closed bit and number of admissions in progress
+	acceptDoneCh      chan struct{}
 	acceptCh          chan *PacketConn
 	doneCh            chan struct{}
 	doneOnce          sync.Once
@@ -89,8 +91,11 @@ func (l *listener) Accept() (net.PacketConn, net.Addr, error) {
 func (l *listener) Close() error {
 	var err error
 	l.doneOnce.Do(func() {
-		l.accepting.Store(false)
+		acceptState := l.acceptState.Or(acceptClosed)
 		close(l.doneCh)
+		if acceptState != 0 {
+			<-l.acceptDoneCh
+		}
 
 		// Close unaccepted connections
 		for {
@@ -187,6 +192,7 @@ func Listen(conn net.PacketConn, opts ...ListenerOption) dtlsnet.PacketListener 
 		pConn:             conn,
 		backlog:           defaultListenBacklog,
 		receiveBufferSize: defaultReceiveBufferSize,
+		acceptDoneCh:      make(chan struct{}),
 		doneCh:            make(chan struct{}),
 		readDoneCh:        make(chan struct{}),
 	}
@@ -196,7 +202,6 @@ func Listen(conn net.PacketConn, opts ...ListenerOption) dtlsnet.PacketListener 
 
 	packetListener.acceptCh = make(chan *PacketConn, packetListener.backlog)
 
-	packetListener.accepting.Store(true)
 	packetListener.connWG.Add(1)
 	packetListener.readWG.Add(2) // wait readLoop and Close execution routine
 
@@ -237,6 +242,24 @@ func (l *listener) readLoop() {
 	}
 }
 
+func (l *listener) beginAccept() bool {
+	for {
+		state := l.acceptState.Load()
+		if state&acceptClosed != 0 {
+			return false
+		}
+		if l.acceptState.CompareAndSwap(state, state+1) {
+			return true
+		}
+	}
+}
+
+func (l *listener) endAccept() {
+	if l.acceptState.Add(^uint64(0)) == acceptClosed {
+		close(l.acceptDoneCh)
+	}
+}
+
 // getConn gets an existing connection or creates a new one.
 func (l *listener) getConn(raddr net.Addr, buf []byte) (*PacketConn, bool, error) { //nolint:cyclop
 	// If we have a custom resolver, use it.
@@ -252,7 +275,7 @@ func (l *listener) getConn(raddr net.Addr, buf []byte) (*PacketConn, bool, error
 	// associated connection, fall back to remote address.
 	conn, has := l.conns.Load(raddr.String())
 	if !has { //nolint:nestif
-		if isAccepting, ok := l.accepting.Load().(bool); !isAccepting || !ok {
+		if l.acceptState.Load()&acceptClosed != 0 {
 			return nil, false, ErrClosedListener
 		}
 		if l.acceptFilter != nil {
@@ -260,12 +283,17 @@ func (l *listener) getConn(raddr net.Addr, buf []byte) (*PacketConn, bool, error
 				return nil, false, nil
 			}
 		}
+		if !l.beginAccept() {
+			return nil, false, ErrClosedListener
+		}
+		defer l.endAccept()
 		conn, has = l.conns.LoadOrStore(raddr.String(), l.newPacketConn(raddr))
 		if !has {
+			l.nConns.Add(1)
 			select {
 			case l.acceptCh <- conn.(*PacketConn): //nolint:forcetypeassert
-				l.nConns.Add(1)
 			default:
+				l.nConns.Add(-1)
 				l.conns.Delete(raddr.String())
 
 				return nil, false, ErrListenQueueExceeded
@@ -383,7 +411,7 @@ func (c *PacketConn) Close() error {
 
 		nConns := c.listener.nConns.Add(-1)
 
-		if isAccepting, ok := c.listener.accepting.Load().(bool); nConns == 0 && !isAccepting && ok {
+		if nConns == 0 && c.listener.acceptState.Load()&acceptClosed != 0 {
 			// Wait if this is the final connection
 			c.listener.readWG.Wait()
 			if errClose, ok := c.listener.errClose.Load().(error); ok {
