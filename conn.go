@@ -3360,3 +3360,24 @@ func (c *Conn) pushHandshake(data []byte, epoch uint64, sequence uint16, typ han
 
 	return nil
 }
+
+func (c *Conn) Discard() int {
+	n := 0
+	for {
+		select {
+		case out, ok := <-c.decrypted:
+			if !ok {
+				return 0
+			}
+			switch out.(type) {
+			case (error):
+				return 0
+			default:
+				n++
+			}
+		default:
+			return n
+		}
+	}
+}
+>>>>>>> 3c4463a (add discard)
