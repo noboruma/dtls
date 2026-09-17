@@ -3201,3 +3201,23 @@ func (c *Conn) acceptEarlyApplicationData(epoch, size uint64) (bool, error) {
 
 	return true, nil
 }
+
+func (c *Conn) Discard() int {
+	n := 0
+	for {
+		select {
+		case out, ok := <-c.decrypted:
+			if !ok {
+				return 0
+			}
+			switch out.(type) {
+			case (error):
+				return 0
+			default:
+				n++
+			}
+		default:
+			return n
+		}
+	}
+}
