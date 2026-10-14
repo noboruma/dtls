@@ -647,16 +647,13 @@ func (c *Conn) Write(payload []byte) (int, error) {
 		return 0, err
 	}
 
-	ctx, cancel := c.contextWithClose(c.writeDeadline.Context())
-	defer cancel()
-
-	err := c.writeApplicationData(ctx, []*dtlsflight.Outbound{
+	err := c.writeApplicationData(c.writeDeadline.Context(), []*dtlsflight.Outbound{
 		c.newApplicationDataPacket(payload),
 	})
-	if errors.Is(err, context.Canceled) && errors.Is(context.Cause(ctx), context.DeadlineExceeded) {
-		return 0, dtlserrors.ErrDeadlineExceeded
-	}
 	if err != nil {
+		if c.writeDeadline.Err() != nil {
+			return 0, dtlserrors.ErrDeadlineExceeded
+		}
 		return 0, err
 	}
 
@@ -888,14 +885,29 @@ func (c *Conn) writePacketsWithResultLocked(ctx context.Context, pkts []*dtlsfli
 }
 
 func (c *Conn) writeDatagram(ctx context.Context, b []byte, addr net.Addr) error {
-	writeCtx, cancel := c.contextWithHandshakeDeadline(ctx, c.writeDeadline)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	if c.isHandshakeCompletedSuccessfully() {
+		if nb, ok := c.nextConn.(netctx.NonBlockWritePacketConn); ok {
+			if _, done, err := nb.WriteToNonBlock(b, addr); done {
+				return err
+			}
+		}
+	}
+
+	closeCtx, cancelClose := c.contextWithClose(ctx)
+	defer cancelClose()
+
+	writeCtx, cancel := c.contextWithHandshakeDeadline(closeCtx, c.writeDeadline)
 	defer cancel()
 
 	err := writeCtx.Err()
 	if err == nil {
 		_, err = c.nextConn.WriteToContext(writeCtx, b, addr)
 	}
-	if errors.Is(err, context.Canceled) && ctx.Err() == nil {
+	if errors.Is(err, context.Canceled) && closeCtx.Err() == nil {
 		return context.Cause(writeCtx)
 	}
 
@@ -3380,4 +3392,3 @@ func (c *Conn) Discard() int {
 		}
 	}
 }
->>>>>>> 3c4463a (add discard)
